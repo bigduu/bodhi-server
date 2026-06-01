@@ -16,6 +16,18 @@ func NewPurger(db *sql.DB) *Purger {
 	return &Purger{db: db}
 }
 
+// allowedPurgeTables is the fixed set of tables retention policies may purge.
+// Table names cannot be parameterized in SQL, so purgeTable interpolates them
+// directly; this whitelist guards against interpolating any unexpected value.
+var allowedPurgeTables = map[string]bool{
+	"usage_tracking":           true,
+	"audit_log":                true,
+	"provider_failures":        true,
+	"request_cache":            true,
+	"distributed_rate_limits":  true,
+	"billing_periods":          true,
+}
+
 type RetentionPolicy struct {
 	TableName    string `json:"table_name"`
 	RetentionDays int   `json:"retention_days"`
@@ -67,6 +79,11 @@ func (p *Purger) RunOnce(ctx context.Context) {
 }
 
 func (p *Purger) purgeTable(ctx context.Context, tableName string, retentionDays int) {
+	if !allowedPurgeTables[tableName] {
+		slog.Warn("purge: skipping table not in retention whitelist", "table", tableName)
+		return
+	}
+
 	batchSize := 10000
 	total := 0
 

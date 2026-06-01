@@ -1,9 +1,11 @@
 package handler
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/bigduu/bodhi-server/internal/retention"
 )
@@ -44,6 +46,12 @@ func (h *RetentionHandler) UpdatePolicy(w http.ResponseWriter, r *http.Request, 
 }
 
 func (h *RetentionHandler) TriggerPurge(w http.ResponseWriter, r *http.Request) {
-	go h.purger.RunOnce(r.Context())
+	// Detach from the request context (which is cancelled once the handler
+	// returns) so the background purge can run to completion.
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+		defer cancel()
+		h.purger.RunOnce(ctx)
+	}()
 	writeJSON(w, http.StatusOK, map[string]string{"status": "purge started"})
 }

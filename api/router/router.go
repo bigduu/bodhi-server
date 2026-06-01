@@ -54,8 +54,8 @@ func Setup(db *sql.DB, cfg *config.Config, staticFiles fs.FS) http.Handler {
 	// Health
 	mux.HandleFunc("GET /health", handler.Health)
 
-	// Prometheus metrics (no auth)
-	mux.HandleFunc("GET /metrics", metrics.ServeHTTP)
+	// Prometheus metrics (admin-only; must not be publicly exposed)
+	mux.HandleFunc("GET /metrics", withAdmin(db, cfg, metrics.ServeHTTP))
 
 	// Version check (public, no auth)
 	mux.HandleFunc("GET /api/v1/version/latest", versionHandler.CheckUpdate)
@@ -311,7 +311,7 @@ func Setup(db *sql.DB, cfg *config.Config, staticFiles fs.FS) http.Handler {
 
 func withJWT(cfg *config.Config, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		tokenStr := extractBearer(r)
+		tokenStr := auth.ExtractBearer(r)
 		if tokenStr == "" {
 			http.Error(w, `{"error":"missing authorization header"}`, http.StatusUnauthorized)
 			return
@@ -329,7 +329,7 @@ func withJWT(cfg *config.Config, next http.HandlerFunc) http.HandlerFunc {
 
 func withAdmin(db *sql.DB, cfg *config.Config, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		tokenStr := extractBearer(r)
+		tokenStr := auth.ExtractBearer(r)
 		if tokenStr == "" {
 			http.Error(w, `{"error":"missing authorization header"}`, http.StatusUnauthorized)
 			return
@@ -358,7 +358,7 @@ func withAdmin(db *sql.DB, cfg *config.Config, next http.HandlerFunc) http.Handl
 
 func withAPIKey(db *sql.DB, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		key := extractBearer(r)
+		key := auth.ExtractBearer(r)
 		if key == "" || !auth.IsBodhiAPIKey(key) {
 			http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
 			return
@@ -492,10 +492,14 @@ func withRequestID(next http.Handler) http.Handler {
 	})
 }
 
-func extractBearer(r *http.Request) string {
-	authHeader := r.Header.Get("Authorization")
-	if strings.HasPrefix(authHeader, "Bearer ") {
-		return strings.TrimPrefix(authHeader, "Bearer ")
-	}
-	return ""
-}
+// NOTE: Token extraction is centralized in internal/auth.ExtractBearer.
+//
+// The withJWT / withAdmin / withAPIKey gates below intentionally remain inline
+// rather than delegating to auth.JWTAuthMiddleware / auth.APIKeyAuthMiddleware:
+// those middlewares propagate identity via request context, whereas every
+// downstream handler in this codebase reads identity from request headers
+// (X-User-ID, X-Username, X-API-Key-ID, etc.). The inline withAPIKey also
+// enforces additional behavior the auth middleware lacks (IP whitelist,
+// allowed_models / allowed_providers propagation). Consolidating those would
+// change auth behavior, so it is deferred; only the duplicated bearer-token
+// extraction has been unified here.

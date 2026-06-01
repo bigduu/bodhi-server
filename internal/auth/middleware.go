@@ -90,6 +90,17 @@ func extractBearerToken(r *http.Request) string {
 	return auth
 }
 
+// ExtractBearer returns the token from an "Authorization: Bearer <token>"
+// header, or "" if the header is missing or not a bearer token. Unlike
+// extractBearerToken it does NOT fall back to the raw header value.
+func ExtractBearer(r *http.Request) string {
+	authHeader := r.Header.Get("Authorization")
+	if strings.HasPrefix(authHeader, "Bearer ") {
+		return strings.TrimPrefix(authHeader, "Bearer ")
+	}
+	return ""
+}
+
 func UserIDFromContext(ctx context.Context) string {
 	if v, ok := ctx.Value(ContextKeyUserID).(string); ok {
 		return v
