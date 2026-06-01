@@ -61,7 +61,7 @@ func NewHandler(db *sql.DB, cfg *config.Config, dispatcher Dispatcher, filter *m
 		routeCache: routeCache,
 		quotaCache: quotaCache,
 		client: &http.Client{
-			Timeout: h.cfg.Server.ProxyTimeout,
+			Timeout: cfg.Server.ProxyTimeout,
 			Transport: &http.Transport{
 				MaxIdleConns:        100,
 				MaxIdleConnsPerHost: 20,
@@ -135,10 +135,10 @@ func (h *Handler) proxyWithRouting(w http.ResponseWriter, r *http.Request) {
 	// Try model registry routing (with cache)
 	routeKey := "route:" + model
 	var targets []ProviderTarget
+	router := NewProviderRouter(h.db)
 	if v, ok := h.routeCache.Get(routeKey); ok {
 		targets = v.([]ProviderTarget)
 	} else {
-		router := NewProviderRouter(h.db)
 		targets, _ = router.ResolveModel(r.Context(), model)
 		if targets == nil {
 			targets = []ProviderTarget{}
@@ -628,11 +628,12 @@ func (h *Handler) resolveCredential(r *http.Request, userID, provider string) (*
 	// Fallback: check group credentials
 	groupsKey := "groups:" + userID
 	var groups []*models.Group
+	var gErr error
 	if v, ok := h.credCache.Get(groupsKey); ok {
 		groups = v.([]*models.Group)
 	} else {
-		groups, _ = models.GetUserGroups(r.Context(), h.db, userID)
-		if groups != nil {
+		groups, gErr = models.GetUserGroups(r.Context(), h.db, userID)
+		if gErr == nil && groups != nil {
 			h.credCache.Set(groupsKey, groups)
 		}
 	}

@@ -185,8 +185,7 @@ func GetCounter(ctx context.Context, db *sql.DB, userID string) (*Counter, error
 func getCounter(ctx context.Context, db *sql.DB, userID string) (*Counter, error) {
 	c := &Counter{}
 	err := db.QueryRowContext(ctx,
-		`SELECT minute_requests, day_requests, day_tokens, month_tokens, day_spend_cents, month_spend_cents,
-		        minute_start, day_start, month_start
+		`SELECT minute_requests, day_requests, day_tokens, month_tokens, day_spend_cents, month_spend_cents
 		 FROM user_usage_counters WHERE user_id = $1::uuid`,
 		userID,
 	).Scan(&c.MinuteRequests, &c.DayRequests, &c.DayTokens, &c.MonthTokens, &c.DaySpend, &c.MonthSpend)

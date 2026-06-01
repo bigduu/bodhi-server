@@ -2,7 +2,6 @@ package handler
 
 import (
 	"database/sql"
-	"encoding/json"
 	"net/http"
 	"strconv"
 

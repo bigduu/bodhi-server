@@ -296,7 +296,3 @@ func DeleteVersion(ctx context.Context, db *sql.DB, id string) error {
 func sqlNullString(s string) sql.NullString {
 	return sql.NullString{String: s, Valid: s != ""}
 }
-
-func isDuplicateKey(err error) bool {
-	return err != nil && strings.Contains(err.Error(), "duplicate key")
-}
