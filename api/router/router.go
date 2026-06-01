@@ -1,9 +1,7 @@
 package router
 
 import (
-	"crypto/rand"
 	"database/sql"
-	"fmt"
 	"io/fs"
 	"log"
 	"net"
@@ -12,6 +10,7 @@ import (
 	"time"
 
 	"github.com/bigduu/bodhi-server/api/handler"
+	"github.com/bigduu/bodhi-server/api/middleware"
 	"github.com/bigduu/bodhi-server/internal/auth"
 	"github.com/bigduu/bodhi-server/internal/config"
 	"github.com/bigduu/bodhi-server/internal/metrics"
@@ -26,7 +25,7 @@ import (
 func Setup(db *sql.DB, cfg *config.Config, staticFiles fs.FS) http.Handler {
 	mux := http.NewServeMux()
 
-	cors := newCORS(cfg.Server.CORSOrigins)
+	cors := middleware.NewCORS(cfg.Server.CORSOrigins)
 	handler.SetServerVersion(cfg.Server.Version)
 
 	loginGuard := security.NewLoginGuard(5, 15*time.Minute)
@@ -287,7 +286,7 @@ func Setup(db *sql.DB, cfg *config.Config, staticFiles fs.FS) http.Handler {
 	rl := ratelimit.New(cfg.RateLimit.RPM, cfg.RateLimit.Burst)
 	retentionPurger.Start(1 * time.Hour)
 
-	handler := withRequestID(cors.middleware(rl.Middleware(mux)))
+	handler := middleware.RequestID(cors.Handler(rl.Middleware(mux)))
 
 	if fileServer != nil {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -436,60 +435,6 @@ func matchIPWhitelist(clientIP string, whitelist []string) bool {
 		}
 	}
 	return false
-}
-
-type corsMiddleware struct {
-	origins []string
-}
-
-func newCORS(origins []string) *corsMiddleware {
-	return &corsMiddleware{origins: origins}
-}
-
-func (c *corsMiddleware) middleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		origin := r.Header.Get("Origin")
-		allowed := "*"
-		if len(c.origins) > 0 {
-			allowed = ""
-			for _, o := range c.origins {
-				if o == origin {
-					allowed = origin
-					break
-				}
-			}
-			if allowed == "" {
-				next.ServeHTTP(w, r)
-				return
-			}
-		}
-		w.Header().Set("Access-Control-Allow-Origin", allowed)
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, x-api-key")
-		if r.Method == "OPTIONS" {
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
-}
-
-func withRequestID(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Content-Type-Options", "nosniff")
-		w.Header().Set("X-Frame-Options", "DENY")
-		w.Header().Set("X-XSS-Protection", "1; mode=block")
-		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
-
-		id := r.Header.Get("X-Request-ID")
-		if id == "" {
-			b := make([]byte, 8)
-			rand.Read(b)
-			id = fmt.Sprintf("%x", b)
-		}
-		r.Header.Set("X-Request-ID", id)
-		next.ServeHTTP(w, r)
-	})
 }
 
 // NOTE: Token extraction is centralized in internal/auth.ExtractBearer.
