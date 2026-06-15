@@ -81,7 +81,7 @@ flowchart TD
 
 ### 密钥保险箱
 
-Provider 密钥从不明文落库。`internal/crypto/encryption.go` 用 **AES-256-GCM**（32 字节密钥，以 64 位十六进制串通过 `BODHI_ENCRYPTION_KEY` 传入，启动时强制校验长度）加密后存入 `provider_credentials`。密钥可按用户存放，也可按用户组共享（`group_credentials`），代理转发时即时解密并注入到上游请求头/查询参数。
+Provider 密钥从不明文落库。`internal/crypto/encryption.go` 用 **AES-256-GCM**（32 字节密钥，以 64 位十六进制串通过 `BODHI_ENCRYPTION_KEY` 传入，在 `internal/config/config.go` 启动时校验为恰好 64 位十六进制）加密后存入 `provider_credentials`。密钥可按用户存放，也可按用户组共享（`group_credentials`），代理转发时即时解密并注入到上游请求头/查询参数。
 
 ### LLM 代理与 Provider 注册表
 

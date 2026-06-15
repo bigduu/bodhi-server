@@ -81,7 +81,7 @@ Humans use JWT — `internal/auth/jwt.go` issues HS256 access tokens (15 min) an
 
 ### Encrypted Credential Vault
 
-Provider secrets are never stored in cleartext. `internal/crypto/encryption.go` uses **AES-256-GCM** (a 32-byte key supplied as 64 hex chars via `BODHI_ENCRYPTION_KEY`, length-validated at boot) before writing to `provider_credentials`. Credentials can live per-user or be shared per-group (`group_credentials`); the proxy decrypts on the fly and injects them into the upstream request.
+Provider secrets are never stored in cleartext. `internal/crypto/encryption.go` uses **AES-256-GCM** (a 32-byte key supplied as 64 hex chars via `BODHI_ENCRYPTION_KEY`, length-validated to exactly 64 hex chars at startup in `internal/config/config.go`) before writing to `provider_credentials`. Credentials can live per-user or be shared per-group (`group_credentials`); the proxy decrypts on the fly and injects them into the upstream request.
 
 ### LLM Proxy & Provider Registry
 
