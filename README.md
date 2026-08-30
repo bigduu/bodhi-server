@@ -2,7 +2,7 @@
 
 > 📖 中文版请看 **[README.zh-CN.md](./README.zh-CN.md)**
 
-> The backend brain of the Zenith stack — it handles accounts, billing, the secret-key vault, and securely forwards requests to the major AI model providers.
+> An account, billing, quota, secret-vault, and LLM-gateway service for the Zenith ecosystem.
 
 ---
 
@@ -173,13 +173,16 @@ GET  /api/v1/billing/current          current usage
 
 ## The Rest of the Stack
 
-`bodhi-server` is the backend service in the **Zenith** monorepo:
+`bodhi-server` is a separate hosted service in the **Zenith** ecosystem. The
+core local desktop path does not require it:
 
-- **[bodhi](../bodhi)** — the desktop AI product shell (Tauri shell), the end-user product interface.
-- **[lotus](../lotus)** — React + Vite frontend UI layer; talks to bamboo over HTTP / SSE (does not call this service directly).
-- **[bamboo](../bamboo)** — local-first Rust agent execution engine; can carry an API key through this service's `/proxy/*`.
+- **[Bodhi](https://github.com/bigduu/Bodhi-AI)** — the Tauri desktop shell; starts or reuses Bamboo, waits for its health endpoint, then opens the Lotus UI served by Bamboo.
+- **[Lotus](https://github.com/bigduu/Lotus)** — the React + Vite frontend served by Bamboo; uses HTTP APIs plus the shared `/v2/stream` WebSocket, with legacy SSE fallback when the first WebSocket connection cannot be established.
+- **[Bamboo](https://github.com/bigduu/Bamboo-agent)** — the local-first Rust agent runtime and Lotus host; when configured, it can carry an API key through this service's `/proxy/*` gateway.
 - **bodhi-server** (this module) — Go backend: auth / persistence / billing & quota / LLM proxy.
-- **[pavilion](../pavilion)** — marketing site and documentation.
-- **[Zenith root](../)** — monorepo entry point, submodule pointers, and release trains.
+- **[Pavilion](https://github.com/bigduu/Pavilion)** — marketing site and documentation.
+- **[Zenith](https://github.com/bigduu/Zenith)** — repository index, submodule pointers, and release trains.
 
-> Note: Zenith's frontends and runtimes communicate over **HTTP**; bodhi/Tauri is just a shell. This service is the unified backend API + LLM gateway.
+> `bodhi-server` is not Bamboo's local API server or the host for Lotus. It is
+> the optional account, billing, quota, and provider gateway described in this
+> README.

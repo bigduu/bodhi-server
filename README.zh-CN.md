@@ -2,7 +2,7 @@
 
 > 📖 For English, see **[README.md](./README.md)**
 
-> Zenith 全家桶的「后端大脑」 — 负责账号、计费、密钥保险箱，以及把请求安全地转发到各家 AI 模型。
+> Zenith 生态中的账号、计费、配额、密钥保险箱与 LLM 网关服务。
 
 ---
 
@@ -173,13 +173,14 @@ GET  /api/v1/billing/current          当前用量
 
 ## 其余拼图
 
-`bodhi-server` 是 **Zenith** 单仓中的后端服务：
+`bodhi-server` 是 **Zenith** 生态中独立的托管服务；本地桌面核心链路并不依赖它：
 
-- **[bodhi](../bodhi)** — 桌面 AI 产品外壳（Tauri shell），最终用户的产品界面。
-- **[lotus](../lotus)** — React + Vite 前端 UI 层；通过 HTTP / SSE 与 bamboo 通信（不直接调用本服务）。
-- **[bamboo](../bamboo)** — 本地优先的 Rust agent 执行引擎；可携带 API Key 走本服务的 `/proxy/*`。
+- **[Bodhi](https://github.com/bigduu/Bodhi-AI)** — Tauri 桌面外壳；启动或复用 Bamboo，等待其健康检查通过，再打开由 Bamboo 提供的 Lotus UI。
+- **[Lotus](https://github.com/bigduu/Lotus)** — 由 Bamboo 提供的 React + Vite 前端；使用 HTTP API 与共享的 `/v2/stream` WebSocket，首次 WebSocket 无法建立时回退到 legacy SSE。
+- **[Bamboo](https://github.com/bigduu/Bamboo-agent)** — 本地优先的 Rust agent 运行时与 Lotus 宿主；配置后可携带 API Key 走本服务的 `/proxy/*` 网关。
 - **bodhi-server**（本模块）— Go 后端：认证 / 持久化 / 计费配额 / LLM 代理。
-- **[pavilion](../pavilion)** — 官网与文档站。
-- **[Zenith 根目录](../)** — 单仓入口、子模块指针与发布列车。
+- **[Pavilion](https://github.com/bigduu/Pavilion)** — 官网与文档站。
+- **[Zenith](https://github.com/bigduu/Zenith)** — 仓库索引、子模块指针与发布列车。
 
-> 架构提示：Zenith 各前端与运行时之间走 **HTTP**，bodhi/Tauri 仅是外壳。本服务即为统一的后端 API + LLM 网关。
+> `bodhi-server` 不是 Bamboo 的本地 API 服务，也不负责托管 Lotus；它
+> 是本 README 所描述的可选账号、计费、配额与 provider 网关。
