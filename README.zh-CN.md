@@ -26,7 +26,7 @@
 | 🧭 模型路由 | 模型注册表 + 多实例按优先级故障转移，自动跳过近期失败的实例 |
 | 🛡️ 防护 | 登录暴力破解防护、IP 限流、全局速率限制、Key 级 IP 白名单与模型白名单 |
 | 📋 治理 | 审计日志、内容审查规则、Webhook 事件、数据保留策略、Prometheus 指标 |
-| 🖥️ 内嵌前端 | 可把构建好的管理面板嵌入二进制（`web/dist`），无前端时退化为纯 API 模式 |
+| 🖥️ 内嵌前端 | 先构建管理面板，再把 `cmd/server/web/dist` 嵌入 Go 二进制 |
 
 ---
 
@@ -105,7 +105,7 @@ Provider 密钥从不明文落库。`internal/crypto/encryption.go` 用 **AES-25
 
 ### Docker（推荐）
 
-`docker-compose.yml` 会同时拉起 PostgreSQL 16 与 bodhi-server（构建自本目录 `Dockerfile`，监听 `8080`）。两个加密相关变量是必填的：
+`docker-compose.yml` 会拉起 PostgreSQL 16 与监听 `8080` 的 bodhi-server。Dockerfile 先用 Node.js 22 构建 React 管理面板，再用 Go 1.25 编译并嵌入该面板。两个加密相关变量是必填的：
 
 ```bash
 # 32 字节 = 64 位十六进制，作为凭据加密密钥
@@ -120,19 +120,20 @@ docker compose up --build
 
 ### 本地裸跑
 
-> 需要 Go（`go.mod` 声明 `go 1.25.0`；`Dockerfile` 构建镜像用 `golang:1.23-alpine`）和一个可达的 PostgreSQL。
+> 需要 Go 1.25、Node.js/npm 和一个可达的 PostgreSQL。
 
 ```bash
 export BODHI_DB_URL="postgres://bodhi:bodhi@localhost:5432/bodhi?sslmode=disable"
 export BODHI_ENCRYPTION_KEY=$(openssl rand -hex 32)
 export BODHI_JWT_SECRET=$(openssl rand -hex 32)
 
+(cd cmd/server/web && npm ci && npm run build)
 go run ./cmd/server      # 启动服务
 go build -o bodhi-server ./cmd/server   # 构建二进制
 go test ./...            # 运行测试
 ```
 
-> 若 `cmd/server/web/dist` 存在并被嵌入，会自动提供管理面板并对非 API 路径走 SPA 回退；否则以纯 API 模式运行。
+Go 构建会嵌入生成的管理面板；浏览器路由回退到内嵌 `index.html`，`/health`、`/metrics`、`/api/*` 与 `/proxy/*` 仍由服务端路由处理。
 
 ### 环境变量
 
