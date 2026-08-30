@@ -41,15 +41,11 @@ func main() {
 		log.Fatalf("failed to run migrations: %v", err)
 	}
 
-	// Check if embedded web/dist exists
-	var staticFiles fs.FS
-	if _, err := fs.Sub(webFS, "web/dist"); err == nil {
-		staticFiles = webFS
-		log.Println("embedded web UI loaded")
-	} else {
-		staticFiles = nil
-		log.Println("no embedded web UI found, running API-only mode")
+	staticFiles, err := fs.Sub(webFS, "web/dist")
+	if err != nil {
+		log.Fatalf("failed to load embedded web UI: %v", err)
 	}
+	log.Println("embedded web UI loaded")
 
 	r := router.Setup(db, cfg, staticFiles)
 

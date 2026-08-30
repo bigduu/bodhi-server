@@ -3,7 +3,6 @@ package router
 import (
 	"database/sql"
 	"io/fs"
-	"log"
 	"net"
 	"net/http"
 	"strings"
@@ -272,40 +271,35 @@ func Setup(db *sql.DB, cfg *config.Config, staticFiles fs.FS) http.Handler {
 		versionHandler.DeleteVersion(w, r, r.PathValue("id"))
 	}))
 
-	// Static files / SPA fallback
-	var fileServer http.Handler
-	if staticFiles != nil {
-		sub, err := fs.Sub(staticFiles, "dist")
-		if err != nil {
-			log.Printf("warning: failed to create sub filesystem: %v", err)
-		} else {
-			fileServer = http.FileServer(http.FS(sub))
-		}
-	}
+	fileServer := http.FileServer(http.FS(staticFiles))
 
 	rl := ratelimit.New(cfg.RateLimit.RPM, cfg.RateLimit.Burst)
 	retentionPurger.Start(1 * time.Hour)
 
 	handler := middleware.RequestID(cors.Handler(rl.Middleware(mux)))
 
-	if fileServer != nil {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// API routes go first
-			if strings.HasPrefix(r.URL.Path, "/api/") ||
-				strings.HasPrefix(r.URL.Path, "/proxy/") ||
-				r.URL.Path == "/health" {
-				handler.ServeHTTP(w, r)
-				return
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/") ||
+			strings.HasPrefix(r.URL.Path, "/proxy/") ||
+			r.URL.Path == "/health" ||
+			r.URL.Path == "/metrics" {
+			handler.ServeHTTP(w, r)
+			return
+		}
+
+		staticR := r.Clone(r.Context())
+		path := strings.TrimPrefix(r.URL.Path, "/")
+		if path != "" {
+			if _, err := fs.Stat(staticFiles, path); err != nil {
+				if strings.HasPrefix(r.URL.Path, "/assets/") {
+					http.NotFound(w, r)
+					return
+				}
+				staticR.URL.Path = "/"
 			}
-
-			// Try static file
-			staticR := r.Clone(r.Context())
-			staticR.URL.Path = r.URL.Path
-			fileServer.ServeHTTP(w, staticR)
-		})
-	}
-
-	return handler
+		}
+		fileServer.ServeHTTP(w, staticR)
+	})
 }
 
 func withJWT(cfg *config.Config, next http.HandlerFunc) http.HandlerFunc {

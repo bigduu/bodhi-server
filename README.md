@@ -26,7 +26,7 @@ It is a single **Go** binary backed by **PostgreSQL**, and it boots with one `do
 | 🧭 Model Routing | Model registry + multi-instance priority failover, automatically skipping recently failed instances |
 | 🛡️ Hardening | Login brute-force protection, IP rate limiting, global rate limit, key-level IP whitelist and model whitelist |
 | 📋 Governance | Audit logs, content moderation rules, webhook events, data retention policies, Prometheus metrics |
-| 🖥️ Embedded UI | The built admin panel can be embedded into the binary (`web/dist`); falls back to pure API mode when absent |
+| 🖥️ Embedded UI | The admin panel is built first and embedded into the Go binary from `cmd/server/web/dist` |
 
 ---
 
@@ -105,7 +105,7 @@ Every proxied call is metered into `usage_tracking`. `internal/pricing/calculato
 
 ### Docker (recommended)
 
-`docker-compose.yml` brings up both PostgreSQL 16 and bodhi-server (built from this directory's `Dockerfile`, listening on `8080`). The two encryption-related variables are required:
+`docker-compose.yml` brings up PostgreSQL 16 and bodhi-server on port `8080`. The Dockerfile builds the React admin panel with Node.js 22, then compiles and embeds it with the Go 1.25 toolchain. The two encryption-related variables are required:
 
 ```bash
 # credential encryption key (32 bytes = 64 hex)
@@ -120,19 +120,20 @@ Service comes up at `http://localhost:8080`; health probe is `GET /health`. Tabl
 
 ### Run locally with Go
 
-> Requires Go (`go.mod` declares `go 1.25.0`; the `Dockerfile` builds the image with `golang:1.23-alpine`) and a reachable PostgreSQL.
+> Requires Go 1.25, Node.js/npm, and a reachable PostgreSQL.
 
 ```bash
 export BODHI_DB_URL="postgres://bodhi:bodhi@localhost:5432/bodhi?sslmode=disable"
 export BODHI_ENCRYPTION_KEY=$(openssl rand -hex 32)
 export BODHI_JWT_SECRET=$(openssl rand -hex 32)
 
+(cd cmd/server/web && npm ci && npm run build)
 go run ./cmd/server      # start the server
 go build -o bodhi-server ./cmd/server   # build the binary
 go test ./...            # run tests
 ```
 
-> If an embedded `web/dist` is present, the admin SPA is served with fallback routing for non-API paths; otherwise it runs API-only.
+The Go build embeds the generated admin assets. Browser routes fall back to the embedded `index.html`; `/health`, `/metrics`, `/api/*`, and `/proxy/*` remain server routes.
 
 ### Environment Variables
 
