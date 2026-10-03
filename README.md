@@ -8,9 +8,21 @@
 
 ## What is this
 
-Picture an "AI concierge" for a whole team. It keeps everyone's login accounts, records every bit of usage and spend, locks expensive API keys away in an encrypted vault, and sits as a smart middleman between your users and the big model providers (OpenAI, Anthropic, Google Gemini, and more) — deciding who may use which model and how much each person is allowed to spend.
+Use bodhi-server when several users need a shared model gateway, centrally stored
+provider credentials, and per-user usage and quota controls. It supplies a Go API
+and browser administration interface. It is an **optional hosted service** in
+Zenith; to use an agent on your own computer, start with
+[Bodhi](https://github.com/bigduu/Bodhi-AI) or [Bamboo](https://github.com/bigduu/Bamboo-agent).
 
-It is a single **Go** binary backed by **PostgreSQL**, and it boots with one `docker compose up`.
+The service needs PostgreSQL, a JWT signing secret, and a credential-encryption key.
+Docker Compose builds the admin interface and Go binary, then starts the service.
+Real model calls also require provider credentials and configuration; a healthy
+server alone does not establish that a provider request succeeds.
+
+As of 2026-10-03, the public GitHub Releases page has no releases. Capabilities
+below describe inspected source, and the quickstart builds that source. They do
+not establish a released hosted product or end-to-end validation of every provider.
+See [audit notes](./docs/readme-audit.md).
 
 ---
 
@@ -103,20 +115,28 @@ Every proxied call is metered into `usage_tracking`. `internal/pricing/calculato
 
 ## Quick Start / Development
 
-### Docker (recommended)
+### Docker: build from source
 
 `docker-compose.yml` brings up PostgreSQL 16 and bodhi-server on port `8080`. The Dockerfile builds the React admin panel with Node.js 22, then compiles and embeds it with the Go 1.25 toolchain. The two encryption-related variables are required:
 
 ```bash
+git clone https://github.com/bigduu/bodhi-server.git
+cd bodhi-server
+
 # credential encryption key (32 bytes = 64 hex)
 export BODHI_ENCRYPTION_KEY=$(openssl rand -hex 32)
 export BODHI_JWT_SECRET=$(openssl rand -hex 32)
-export BODHI_DB_PASSWORD=change-me   # optional, default "bodhi"
+export BODHI_DB_PASSWORD=$(openssl rand -hex 24)
 
 docker compose up --build
 ```
 
 Service comes up at `http://localhost:8080`; health probe is `GET /health`. Tables are auto-migrated on boot by `internal/database/schema.go`.
+
+Keep these generated secrets stable for the same database: changing the encryption
+key prevents decryption of existing provider credentials. The Compose file exposes
+ports 8080 and 5432 on the host; use an isolated development environment for this
+quickstart. A production deployment needs its own network and TLS configuration.
 
 ### Run locally with Go
 
@@ -176,13 +196,13 @@ GET  /api/v1/billing/current          current usage
 `bodhi-server` is a separate hosted service in the **Zenith** ecosystem. The
 core local desktop path does not require it:
 
-- **[Bodhi](https://github.com/bigduu/Bodhi-AI)** — the Tauri desktop shell; starts or reuses Bamboo, waits for its health endpoint, then opens the Lotus UI served by Bamboo.
-- **[Lotus](https://github.com/bigduu/Lotus)** — the React + Vite frontend served by Bamboo; uses HTTP APIs plus the shared `/v2/stream` WebSocket, with legacy SSE fallback when the first WebSocket connection cannot be established.
-- **[Bamboo](https://github.com/bigduu/Bamboo-agent)** — the local-first Rust agent runtime and Lotus host; when configured, it can carry an API key through this service's `/proxy/*` gateway.
+- **[Bodhi](https://github.com/bigduu/Bodhi-AI)** — the Tauri desktop shell; starts its owned Bamboo sidecar, waits for its health endpoint, then opens the Lotus Next UI served by Bamboo. External-server reuse is limited to the explicitly selected legacy rollback path.
+- **[Lotus Next](https://github.com/bigduu/lotus-next)** — the React + Vite frontend served by Bamboo; uses HTTP APIs plus the shared `/v2/stream` WebSocket, with legacy SSE fallback when the first WebSocket connection cannot be established.
+- **[Bamboo](https://github.com/bigduu/Bamboo-agent)** — the local-first Rust agent runtime and Lotus Next host; when configured, it can carry an API key through this service's `/proxy/*` gateway.
 - **bodhi-server** (this module) — Go backend: auth / persistence / billing & quota / LLM proxy.
 - **[Pavilion](https://github.com/bigduu/Pavilion)** — marketing site and documentation.
 - **[Zenith](https://github.com/bigduu/Zenith)** — repository index, submodule pointers, and release trains.
 
-> `bodhi-server` is not Bamboo's local API server or the host for Lotus. It is
+> `bodhi-server` is not Bamboo's local API server or the host for Lotus Next. It is
 > the optional account, billing, quota, and provider gateway described in this
 > README.
