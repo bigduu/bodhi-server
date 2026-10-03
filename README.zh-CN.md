@@ -8,9 +8,11 @@
 
 ## 这是什么
 
-想象一个为团队服务的「AI 总管」。它替你保管每个人的登录账号、记录每一次用量与花费、把昂贵的 API 密钥锁进加密保险箱，并在你和 OpenAI、Anthropic、Google Gemini 等模型之间充当一个聪明的中转站 —— 谁能用哪个模型、每天能花多少钱，都由它说了算。
+如果你需要给多人提供统一的模型入口、集中保存 provider 凭据，并查看每个用户的用量与配额，bodhi-server 提供对应的 Go API 和浏览器管理界面。它是 Zenith 的**可选托管服务**；只想在自己的电脑上使用智能体，请从 [Bodhi](https://github.com/bigduu/Bodhi-AI) 或 [Bamboo](https://github.com/bigduu/Bamboo-agent) 开始。
 
-它是用 **Go** 写的单一可执行文件，数据存在 **PostgreSQL**，可以一条 `docker compose up` 跑起来。
+服务需要 PostgreSQL、JWT 签名密钥和凭据加密密钥；Docker Compose 会构建管理界面与 Go 二进制，再启动服务。连接实际模型还需要 provider 凭据和相应配置，启动成功不等于模型请求已通过。
+
+截至 2026-10-03，公开 GitHub Releases 页面没有发布条目。下述能力基于当前源码检查，快速开始是源码构建流程；不代表已发布托管产品或完成所有 provider 的端到端验证。详见[核对记录](./docs/readme-audit.md)。
 
 ---
 
@@ -103,20 +105,25 @@ Provider 密钥从不明文落库。`internal/crypto/encryption.go` 用 **AES-25
 
 ## 快速开始 / 开发
 
-### Docker（推荐）
+### Docker：从源码构建
 
 `docker-compose.yml` 会拉起 PostgreSQL 16 与监听 `8080` 的 bodhi-server。Dockerfile 先用 Node.js 22 构建 React 管理面板，再用 Go 1.25 编译并嵌入该面板。两个加密相关变量是必填的：
 
 ```bash
+git clone https://github.com/bigduu/bodhi-server.git
+cd bodhi-server
+
 # 32 字节 = 64 位十六进制，作为凭据加密密钥
 export BODHI_ENCRYPTION_KEY=$(openssl rand -hex 32)
 export BODHI_JWT_SECRET=$(openssl rand -hex 32)
-export BODHI_DB_PASSWORD=change-me   # 可选，默认 "bodhi"
+export BODHI_DB_PASSWORD=$(openssl rand -hex 24)
 
 docker compose up --build
 ```
 
 启动后服务在 `http://localhost:8080`，健康检查 `GET /health`。数据库表由 `internal/database/schema.go` 在启动时自动迁移创建。
+
+对同一数据库应保留并复用生成的密钥：更换加密密钥后将无法解密已有 provider 凭据。Compose 会将 8080 和 5432 端口映射到宿主机；这份快速开始适用于隔离开发环境。生产部署需要单独配置网络与 TLS。
 
 ### 本地裸跑
 
@@ -175,12 +182,12 @@ GET  /api/v1/billing/current          当前用量
 
 `bodhi-server` 是 **Zenith** 生态中独立的托管服务；本地桌面核心链路并不依赖它：
 
-- **[Bodhi](https://github.com/bigduu/Bodhi-AI)** — Tauri 桌面外壳；启动或复用 Bamboo，等待其健康检查通过，再打开由 Bamboo 提供的 Lotus UI。
-- **[Lotus](https://github.com/bigduu/Lotus)** — 由 Bamboo 提供的 React + Vite 前端；使用 HTTP API 与共享的 `/v2/stream` WebSocket，首次 WebSocket 无法建立时回退到 legacy SSE。
-- **[Bamboo](https://github.com/bigduu/Bamboo-agent)** — 本地优先的 Rust agent 运行时与 Lotus 宿主；配置后可携带 API Key 走本服务的 `/proxy/*` 网关。
+- **[Bodhi](https://github.com/bigduu/Bodhi-AI)** — Tauri 桌面外壳；启动自己管理的 Bamboo sidecar，等待其健康检查通过，再打开由 Bamboo 提供的 Lotus Next UI。只有显式选择旧版回滚路径时才复用外部服务。
+- **[Lotus Next](https://github.com/bigduu/lotus-next)** — 由 Bamboo 提供的 React + Vite 前端；使用 HTTP API 与共享的 `/v2/stream` WebSocket，首次 WebSocket 无法建立时回退到 legacy SSE。
+- **[Bamboo](https://github.com/bigduu/Bamboo-agent)** — 本地优先的 Rust agent 运行时与 Lotus Next 宿主；配置后可携带 API Key 走本服务的 `/proxy/*` 网关。
 - **bodhi-server**（本模块）— Go 后端：认证 / 持久化 / 计费配额 / LLM 代理。
 - **[Pavilion](https://github.com/bigduu/Pavilion)** — 官网与文档站。
 - **[Zenith](https://github.com/bigduu/Zenith)** — 仓库索引、子模块指针与发布列车。
 
-> `bodhi-server` 不是 Bamboo 的本地 API 服务，也不负责托管 Lotus；它
+> `bodhi-server` 不是 Bamboo 的本地 API 服务，也不负责托管 Lotus Next；它
 > 是本 README 所描述的可选账号、计费、配额与 provider 网关。
