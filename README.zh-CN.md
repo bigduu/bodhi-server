@@ -191,3 +191,7 @@ GET  /api/v1/billing/current          当前用量
 
 > `bodhi-server` 不是 Bamboo 的本地 API 服务，也不负责托管 Lotus Next；它
 > 是本 README 所描述的可选账号、计费、配额与 provider 网关。
+
+## 许可证
+
+项目自有代码和文档采用 [MIT 许可证](./LICENSE)。第三方组件保留各自的许可证和版权声明。
