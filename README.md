@@ -206,3 +206,8 @@ core local desktop path does not require it:
 > `bodhi-server` is not Bamboo's local API server or the host for Lotus Next. It is
 > the optional account, billing, quota, and provider gateway described in this
 > README.
+
+## License
+
+Project-owned code and documentation are licensed under the [MIT License](./LICENSE).
+Third-party components retain their respective licenses and copyright notices.
