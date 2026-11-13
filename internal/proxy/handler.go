@@ -690,15 +690,15 @@ func extractMessagesText(body []byte, nativeAnthropic bool) string {
 	}
 	var parts []string
 	if nativeAnthropic {
-		parts = appendMessageText(parts, req.System)
+		parts = appendMessageText(parts, req.System, false)
 	}
 	for _, m := range req.Messages {
-		parts = appendMessageText(parts, m.Content)
+		parts = appendMessageText(parts, m.Content, nativeAnthropic)
 	}
 	return strings.Join(parts, " ")
 }
 
-func appendMessageText(parts []string, content interface{}) []string {
+func appendMessageText(parts []string, content interface{}, nativeAnthropic bool) []string {
 	switch value := content.(type) {
 	case string:
 		parts = append(parts, value)
@@ -708,9 +708,21 @@ func appendMessageText(parts []string, content interface{}) []string {
 			if !ok {
 				continue
 			}
-			if kind, _ := block["type"].(string); kind == "text" {
+			kind, _ := block["type"].(string)
+			switch kind {
+			case "text":
 				if text, ok := block["text"].(string); ok {
 					parts = append(parts, text)
+				}
+			case "tool_result", "document":
+				if nativeAnthropic {
+					parts = appendMessageText(parts, block["content"], true)
+					if source, ok := block["source"].(map[string]interface{}); ok {
+						parts = appendMessageText(parts, source["content"], true)
+						if sourceType, _ := source["type"].(string); sourceType == "text" {
+							parts = appendMessageText(parts, source["data"], false)
+						}
+					}
 				}
 			}
 		}

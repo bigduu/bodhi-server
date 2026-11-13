@@ -193,3 +193,19 @@ func TestNativeAnthropicInputIncludesSystemText(t *testing.T) {
 		}
 	}
 }
+
+func TestNativeAnthropicInputIncludesToolResultsAndDocumentText(t *testing.T) {
+	body := []byte(`{"messages":[{"role":"user","content":[
+		{"type":"text","text":"hello"},
+		{"type":"tool_result","content":"result one"},
+		{"type":"tool_result","content":[{"type":"text","text":"result two"}]},
+		{"type":"document","source":{"type":"text","data":"document text"}},
+		{"type":"document","source":{"type":"content","content":[{"type":"text","text":"document blocks"}]}}
+	]}]}`)
+	if got := extractMessagesText(body, true); got != "hello result one result two document text document blocks" {
+		t.Errorf("native input = %q", got)
+	}
+	if got := extractMessagesText(body, false); got != "hello" {
+		t.Errorf("translated input = %q", got)
+	}
+}
