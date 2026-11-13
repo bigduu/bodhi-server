@@ -27,7 +27,8 @@ func blockedClientHeader(name string) bool {
 	case "authorization", "x-api-key", "api-key", "x-goog-api-key", "x-litellm-api-key",
 		"cookie", "cookie2", "host", "content-length", "content-encoding", "accept-encoding",
 		"x-user-id", "x-username", "x-api-key-id", "x-key-allowed-models", "x-key-allowed-providers",
-		"forwarded", "x-real-ip", "x-forwarded-for", "x-forwarded-host", "x-forwarded-proto", "x-forwarded-port":
+		"forwarded", "x-real-ip", "x-forwarded-for", "x-forwarded-host", "x-forwarded-proto", "x-forwarded-port",
+		"x-http-method-override", "x-http-method", "x-method-override", "x-original-url", "x-rewrite-url":
 		return true
 	default:
 		return false
@@ -46,7 +47,8 @@ func copyProviderResponseHeaders(dst, src http.Header, reframed bool) {
 			if reframed {
 				continue
 			}
-		case "authorization", "x-api-key", "api-key", "x-goog-api-key",
+		case "authorization", "x-api-key", "api-key", "x-goog-api-key", "x-litellm-api-key",
+			"x-user-id", "x-username", "x-api-key-id", "x-key-allowed-models", "x-key-allowed-providers",
 			"set-cookie", "set-cookie2", "server", "access-control-allow-origin",
 			"access-control-allow-credentials", "access-control-expose-headers":
 			continue

@@ -54,6 +54,7 @@ func TestProxyAnthropicPreservesNativeMessagesAndHeaders(t *testing.T) {
 		{"SSE", http.StatusOK, "text/event-stream", streamBody, 12, 3},
 		{"JSON", http.StatusOK, "application/json", messageBody, 9, 4},
 		{"rate limit", http.StatusTooManyRequests, "application/json", errorBody, 0, 0},
+		{"upstream redirect", http.StatusTemporaryRedirect, "text/plain", "redirect", 0, 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			type capturedRequest struct {
@@ -77,6 +78,9 @@ func TestProxyAnthropicPreservesNativeMessagesAndHeaders(t *testing.T) {
 				w.Header().Set("X-Upstream-Hop", "hop-only")
 				if tc.status == http.StatusTooManyRequests {
 					w.Header().Set("Retry-After", "7")
+				}
+				if tc.status == http.StatusTemporaryRedirect {
+					w.Header().Set("Location", "/redirect-target")
 				}
 				w.WriteHeader(tc.status)
 				_, _ = io.WriteString(w, tc.response)
@@ -112,6 +116,7 @@ func TestProxyAnthropicPreservesNativeMessagesAndHeaders(t *testing.T) {
 			request.Header.Set("X-Custom-Provider", "configured")
 			request.Header.Set("Connection", "X-Hop-Only")
 			request.Header.Set("X-Hop-Only", "hop-only")
+			request.Header.Set("X-HTTP-Method-Override", "DELETE")
 			request.Header.Set("Cookie", "session=client-private")
 			request.Header.Set("Content-Type", "application/json")
 			result := httptest.NewRecorder()
@@ -133,7 +138,7 @@ func TestProxyAnthropicPreservesNativeMessagesAndHeaders(t *testing.T) {
 				if beta := strings.Join(sent.header.Values("Anthropic-Beta"), ","); beta != "feature-one,feature-two" {
 					t.Errorf("upstream beta values changed: %q", beta)
 				}
-				for _, name := range []string{"Authorization", "X-User-Id", "X-Api-Key-Id", "X-Key-Allowed-Providers", "Cookie", "Connection", "X-Hop-Only"} {
+				for _, name := range []string{"Authorization", "X-User-Id", "X-Api-Key-Id", "X-Key-Allowed-Providers", "Cookie", "Connection", "X-Hop-Only", "X-HTTP-Method-Override"} {
 					if sent.header.Get(name) != "" {
 						t.Errorf("client header reached upstream: %s", name)
 					}
@@ -162,15 +167,17 @@ func TestProxyAnthropicPreservesNativeMessagesAndHeaders(t *testing.T) {
 			if tc.status == http.StatusTooManyRequests && headers.Get("Retry-After") != "7" {
 				t.Errorf("rate limit hint missing: %v", headers)
 			}
+			if tc.status == http.StatusTemporaryRedirect && headers.Get("Location") != "/redirect-target" {
+				t.Errorf("upstream redirect changed: %v", headers)
+			}
 		})
 	}
 }
 
-func TestProxyAnthropicRejectsNonInferenceEndpoint(t *testing.T) {
-	result := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPost, "/proxy/anthropic/v1/messages/batches", nil)
-	(&Handler{}).ProxyAnthropic(result, request)
-	if result.Code != http.StatusNotFound {
-		t.Fatalf("status = %d, want %d", result.Code, http.StatusNotFound)
+func TestNativeAnthropicEndpointIsLimitedToMessagesAndModelDiscovery(t *testing.T) {
+	for _, path := range []string{"/proxy/anthropic/v1/messages/batches", "/proxy/anthropic/v1/complete"} {
+		if isNativeAnthropicEndpoint(httptest.NewRequest(http.MethodPost, path, nil)) {
+			t.Errorf("%s must use its existing request handler", path)
+		}
 	}
 }

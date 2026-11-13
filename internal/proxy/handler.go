@@ -277,12 +277,9 @@ func (h *Handler) proxyProvider(w http.ResponseWriter, r *http.Request, provider
 	start := time.Now()
 	userID := r.Header.Get("X-User-ID")
 	apiKeyID := r.Header.Get("X-API-Key-ID")
-	nativeAnthropic := provider == "anthropic" && strings.HasPrefix(r.URL.Path, "/proxy/anthropic/")
-	// Native forwarding uses the gateway's credential for the inference API.
-	if nativeAnthropic && !isNativeAnthropicEndpoint(r) {
-		http.NotFound(w, r)
-		return
-	}
+	// The explicit inference routes have a matching native request and response.
+	// Other paths retain the existing conversion contract.
+	nativeAnthropic := provider == "anthropic" && isNativeAnthropicEndpoint(r)
 
 	cred, err := h.resolveCredential(r, userID, provider)
 	if err != nil {
@@ -405,7 +402,17 @@ func (h *Handler) proxyProvider(w http.ResponseWriter, r *http.Request, provider
 
 	h.injectAuth(provider, proxyReq, realKey, targetURL)
 
-	resp, err := h.client.Do(proxyReq)
+	client := h.client
+	if nativeAnthropic {
+		// The configured upstream owns this request. Keep credentials,
+		// provider headers and the original method on that HTTP hop.
+		nativeClient := *client
+		nativeClient.CheckRedirect = func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		}
+		client = &nativeClient
+	}
+	resp, err := client.Do(proxyReq)
 	if err != nil {
 		slog.Error("proxy request failed", "error", err)
 		h.recordUsage(userID, apiKeyID, provider, model, r.URL.Path, start, 0, 0, 502, err.Error())
@@ -415,7 +422,7 @@ func (h *Handler) proxyProvider(w http.ResponseWriter, r *http.Request, provider
 	defer resp.Body.Close()
 
 	// Error responses: pass through and record
-	if resp.StatusCode >= 400 {
+	if resp.StatusCode >= 400 || (nativeAnthropic && resp.StatusCode >= 300) {
 		respBody, _ := io.ReadAll(resp.Body)
 		copyProviderResponseHeaders(w.Header(), resp.Header, false)
 		w.WriteHeader(resp.StatusCode)
@@ -800,7 +807,7 @@ func (h *Handler) buildTargetURL(r *http.Request, provider string, cred *models.
 
 func isNativeAnthropicEndpoint(r *http.Request) bool {
 	switch r.URL.EscapedPath() {
-	case "/proxy/anthropic/v1/messages", "/proxy/anthropic/v1/messages/count_tokens", "/proxy/anthropic/v1/complete":
+	case "/proxy/anthropic/v1/messages", "/proxy/anthropic/v1/messages/count_tokens":
 		return r.Method == http.MethodPost
 	case "/proxy/anthropic/v1/models":
 		return r.Method == http.MethodGet
