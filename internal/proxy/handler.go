@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"io"
 	"log/slog"
+	"mime"
 	"net/http"
 	"strings"
 	"time"
@@ -220,14 +221,7 @@ func (h *Handler) proxyWithRouting(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 
-			for k, vv := range r.Header {
-				if strings.EqualFold(k, "authorization") || strings.EqualFold(k, "x-api-key") {
-					continue
-				}
-				for _, v := range vv {
-					proxyReq.Header.Add(k, v)
-				}
-			}
+			copyProviderRequestHeaders(proxyReq.Header, r.Header, provider)
 			h.injectAuth(provider, proxyReq, realKey, targetURL)
 
 			resp, respErr := h.client.Do(proxyReq)
@@ -247,9 +241,7 @@ func (h *Handler) proxyWithRouting(w http.ResponseWriter, r *http.Request) {
 				if resp.StatusCode >= 500 {
 					router.RecordFailure(r.Context(), target.InstanceID, string(respBody[:min(len(respBody), 500)]))
 				}
-				for k, vv := range resp.Header {
-					for _, v := range vv { w.Header().Add(k, v) }
-				}
+				copyProviderResponseHeaders(w.Header(), resp.Header, false)
 				w.WriteHeader(resp.StatusCode)
 				w.Write(respBody)
 				h.recordUsage(userID, apiKeyID, provider, model, r.URL.Path, start, 0, 0, resp.StatusCode, "")
@@ -285,6 +277,12 @@ func (h *Handler) proxyProvider(w http.ResponseWriter, r *http.Request, provider
 	start := time.Now()
 	userID := r.Header.Get("X-User-ID")
 	apiKeyID := r.Header.Get("X-API-Key-ID")
+	nativeAnthropic := provider == "anthropic" && strings.HasPrefix(r.URL.Path, "/proxy/anthropic/")
+	// Native forwarding uses the gateway's credential for the inference API.
+	if nativeAnthropic && !isNativeAnthropicEndpoint(r) {
+		http.NotFound(w, r)
+		return
+	}
 
 	cred, err := h.resolveCredential(r, userID, provider)
 	if err != nil {
@@ -310,6 +308,11 @@ func (h *Handler) proxyProvider(w http.ResponseWriter, r *http.Request, provider
 	}
 
 	model := extractModel(body)
+
+	if nativeAnthropic && r.Method == http.MethodPost && model == "" {
+		http.Error(w, `{"error":"Anthropic request must have a JSON body with a model"}`, http.StatusBadRequest)
+		return
+	}
 
 	// Content moderation: check input
 	if h.filter != nil {
@@ -346,7 +349,10 @@ func (h *Handler) proxyProvider(w http.ResponseWriter, r *http.Request, provider
 			isStreamingRequest = s
 		}
 	}
-	if !isStreamingRequest && cache.IsCacheable(body) {
+	// Native requests can vary by protocol headers and must not replay a
+	// cached response from the OpenAI translation path.
+	cacheable := !nativeAnthropic && !isStreamingRequest && cache.IsCacheable(body)
+	if cacheable {
 		cacheKey := cache.ComputeKey(model, body)
 		if entry, _ := cache.Get(r.Context(), h.db, cacheKey); entry != nil {
 			w.Header().Set("Content-Type", "application/json")
@@ -359,7 +365,7 @@ func (h *Handler) proxyProvider(w http.ResponseWriter, r *http.Request, provider
 		metrics.IncCacheMiss()
 	}
 
-	needsConversion := provider != "openai"
+	needsConversion := provider != "openai" && !nativeAnthropic
 	var convertedBody []byte = body
 
 	if needsConversion {
@@ -395,14 +401,7 @@ func (h *Handler) proxyProvider(w http.ResponseWriter, r *http.Request, provider
 		return
 	}
 
-	for k, vv := range r.Header {
-		if strings.EqualFold(k, "authorization") || strings.EqualFold(k, "x-api-key") {
-			continue
-		}
-		for _, v := range vv {
-			proxyReq.Header.Add(k, v)
-		}
-	}
+	copyProviderRequestHeaders(proxyReq.Header, r.Header, provider)
 
 	h.injectAuth(provider, proxyReq, realKey, targetURL)
 
@@ -418,15 +417,17 @@ func (h *Handler) proxyProvider(w http.ResponseWriter, r *http.Request, provider
 	// Error responses: pass through and record
 	if resp.StatusCode >= 400 {
 		respBody, _ := io.ReadAll(resp.Body)
-		for k, vv := range resp.Header {
-			for _, v := range vv {
-				w.Header().Add(k, v)
-			}
-		}
+		copyProviderResponseHeaders(w.Header(), resp.Header, false)
 		w.WriteHeader(resp.StatusCode)
 		w.Write(respBody)
 		h.recordUsage(userID, apiKeyID, provider, model, r.URL.Path, start, 0, 0, resp.StatusCode, "")
 		return
+	}
+
+	// Native endpoints such as token counting may respond with JSON.
+	if nativeAnthropic {
+		mediaType, _, _ := mime.ParseMediaType(resp.Header.Get("Content-Type"))
+		isStreaming = mediaType == "text/event-stream"
 	}
 
 	// Successful response paths
@@ -439,7 +440,7 @@ func (h *Handler) proxyProvider(w http.ResponseWriter, r *http.Request, provider
 		inputTokens, outputTokens, clientBody = h.handleNonStreaming(w, resp, provider, needsConversion)
 
 		// Store in cache if cacheable
-		if !isStreamingRequest && cache.IsCacheable(body) && resp.StatusCode == 200 {
+		if cacheable && resp.StatusCode == http.StatusOK {
 			cacheKey := cache.ComputeKey(model, body)
 			costCents := pricing.CalculateCost(r.Context(), h.db, provider, model, inputTokens, outputTokens)
 			cache.Set(r.Context(), h.db, cacheKey, model, clientBody, inputTokens, outputTokens, costCents, time.Hour)
@@ -476,12 +477,7 @@ func (h *Handler) handleNonStreaming(w http.ResponseWriter, resp *http.Response,
 		}
 	}
 
-	// Copy response headers
-	for k, vv := range resp.Header {
-		for _, v := range vv {
-			w.Header().Add(k, v)
-		}
-	}
+	copyProviderResponseHeaders(w.Header(), resp.Header, needsConversion)
 	w.WriteHeader(resp.StatusCode)
 	w.Write(clientBody)
 	return input, output, clientBody
@@ -495,10 +491,16 @@ func (h *Handler) handleStreaming(w http.ResponseWriter, resp *http.Response, pr
 		return 0, 0
 	}
 
+	if !needsConversion && provider == "anthropic" {
+		copyProviderResponseHeaders(w.Header(), resp.Header, false)
+		w.WriteHeader(resp.StatusCode)
+		flusher.Flush()
+		return streamAnthropic(w, resp, flusher)
+	}
+	copyProviderResponseHeaders(w.Header(), resp.Header, true)
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	w.WriteHeader(http.StatusOK)
+	w.WriteHeader(resp.StatusCode)
 	flusher.Flush()
 
 	if needsConversion {
@@ -785,11 +787,25 @@ func (h *Handler) buildTargetURL(r *http.Request, provider string, cred *models.
 	case "openai":
 		return baseURL + strings.TrimPrefix(r.URL.Path, "/proxy/openai")
 	case "anthropic":
-		return baseURL + strings.TrimPrefix(r.URL.Path, "/proxy/anthropic")
+		path := baseURL + strings.TrimPrefix(r.URL.EscapedPath(), "/proxy/anthropic")
+		if r.URL.RawQuery != "" {
+			path += "?" + r.URL.RawQuery
+		}
+		return path
 	case "gemini":
 		return baseURL + strings.TrimPrefix(r.URL.Path, "/proxy/gemini")
 	}
 	return baseURL + r.URL.Path
+}
+
+func isNativeAnthropicEndpoint(r *http.Request) bool {
+	switch r.URL.EscapedPath() {
+	case "/proxy/anthropic/v1/messages", "/proxy/anthropic/v1/messages/count_tokens", "/proxy/anthropic/v1/complete":
+		return r.Method == http.MethodPost
+	case "/proxy/anthropic/v1/models":
+		return r.Method == http.MethodGet
+	}
+	return false
 }
 
 func (h *Handler) injectAuth(provider string, req *http.Request, apiKey, targetURL string) {
@@ -798,7 +814,9 @@ func (h *Handler) injectAuth(provider string, req *http.Request, apiKey, targetU
 		req.Header.Set("Authorization", "Bearer "+apiKey)
 	case "anthropic":
 		req.Header.Set("x-api-key", apiKey)
-		req.Header.Set("anthropic-version", "2023-06-01")
+		if req.Header.Get("anthropic-version") == "" {
+			req.Header.Set("anthropic-version", "2023-06-01")
+		}
 	case "gemini":
 		q := req.URL.Query()
 		q.Set("key", apiKey)
