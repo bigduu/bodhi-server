@@ -108,7 +108,7 @@ func (h *Handler) proxyWithRouting(w http.ResponseWriter, r *http.Request) {
 
 	// Content moderation: check input
 	if h.filter != nil {
-		inputText := extractMessagesText(body)
+		inputText := extractMessagesText(body, false)
 		if inputText != "" {
 			if result := h.filter.CheckInput(r.Context(), inputText); result != nil {
 				if result.Action == "block" {
@@ -313,7 +313,7 @@ func (h *Handler) proxyProvider(w http.ResponseWriter, r *http.Request, provider
 
 	// Content moderation: check input
 	if h.filter != nil {
-		inputText := extractMessagesText(body)
+		inputText := extractMessagesText(body, nativeAnthropic)
 		if inputText != "" {
 			if result := h.filter.CheckInput(r.Context(), inputText); result != nil {
 				if result.Action == "block" {
@@ -678,8 +678,9 @@ func extractModel(body []byte) string {
 	return ""
 }
 
-func extractMessagesText(body []byte) string {
+func extractMessagesText(body []byte, nativeAnthropic bool) string {
 	var req struct {
+		System   interface{} `json:"system"`
 		Messages []struct {
 			Content interface{} `json:"content"`
 		} `json:"messages"`
@@ -688,23 +689,33 @@ func extractMessagesText(body []byte) string {
 		return ""
 	}
 	var parts []string
+	if nativeAnthropic {
+		parts = appendMessageText(parts, req.System)
+	}
 	for _, m := range req.Messages {
-		switch v := m.Content.(type) {
-		case string:
-			parts = append(parts, v)
-		case []interface{}:
-			for _, item := range v {
-				if obj, ok := item.(map[string]interface{}); ok {
-					if t, ok := obj["type"].(string); ok && t == "text" {
-						if text, ok := obj["text"].(string); ok {
-							parts = append(parts, text)
-						}
-					}
+		parts = appendMessageText(parts, m.Content)
+	}
+	return strings.Join(parts, " ")
+}
+
+func appendMessageText(parts []string, content interface{}) []string {
+	switch value := content.(type) {
+	case string:
+		parts = append(parts, value)
+	case []interface{}:
+		for _, item := range value {
+			block, ok := item.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			if kind, _ := block["type"].(string); kind == "text" {
+				if text, ok := block["text"].(string); ok {
+					parts = append(parts, text)
 				}
 			}
 		}
 	}
-	return strings.Join(parts, " ")
+	return parts
 }
 
 func checkKeyRestrictions(w http.ResponseWriter, r *http.Request, model, provider string) bool {

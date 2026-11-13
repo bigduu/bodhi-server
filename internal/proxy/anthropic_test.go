@@ -181,3 +181,15 @@ func TestNativeAnthropicEndpointIsLimitedToMessagesAndModelDiscovery(t *testing.
 		}
 	}
 }
+
+func TestNativeAnthropicInputIncludesSystemText(t *testing.T) {
+	for _, system := range []string{`"system marker"`, `[{"type":"text","text":"system marker","cache_control":{"type":"ephemeral"}}]`} {
+		body := []byte(`{"system":` + system + `,"messages":[{"role":"user","content":"hello"}]}`)
+		if got := extractMessagesText(body, true); got != "system marker hello" {
+			t.Errorf("native input = %q", got)
+		}
+		if got := extractMessagesText(body, false); got != "hello" {
+			t.Errorf("translated input = %q", got)
+		}
+	}
+}
