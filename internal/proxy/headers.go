@@ -25,7 +25,7 @@ func copyProviderRequestHeaders(dst, src http.Header, provider string) {
 func blockedClientHeader(name string) bool {
 	switch name {
 	case "authorization", "x-api-key", "api-key", "x-goog-api-key", "x-litellm-api-key",
-		"cookie", "cookie2", "host", "content-length", "content-encoding", "accept-encoding",
+		"cookie", "cookie2", "host", "content-length", "accept-encoding",
 		"x-user-id", "x-username", "x-api-key-id", "x-key-allowed-models", "x-key-allowed-providers",
 		"forwarded", "x-real-ip", "x-forwarded-for", "x-forwarded-host", "x-forwarded-proto", "x-forwarded-port",
 		"x-http-method-override", "x-http-method", "x-method-override", "x-original-url", "x-rewrite-url":

@@ -209,3 +209,12 @@ func TestNativeAnthropicInputIncludesToolResultsAndDocumentText(t *testing.T) {
 		t.Errorf("translated input = %q", got)
 	}
 }
+
+func TestRequestHeadersPreserveContentEncodingForUnchangedBodies(t *testing.T) {
+	src := http.Header{"Content-Encoding": {"gzip"}}
+	dst := make(http.Header)
+	copyProviderRequestHeaders(dst, src, "openai")
+	if got := dst.Get("Content-Encoding"); got != "gzip" {
+		t.Errorf("Content-Encoding = %q, want gzip", got)
+	}
+}
