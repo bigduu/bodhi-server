@@ -135,8 +135,8 @@ func TestProxyAnthropicPreservesNativeMessagesAndHeaders(t *testing.T) {
 						t.Errorf("upstream %s = %q, want %q", name, got, want)
 					}
 				}
-				if beta := strings.Join(sent.header.Values("Anthropic-Beta"), ","); beta != "feature-one,feature-two" {
-					t.Errorf("upstream beta values changed: %q", beta)
+				if betas := sent.header.Values("Anthropic-Beta"); len(betas) != 1 || betas[0] != "feature-one, feature-two" {
+					t.Errorf("upstream beta values changed: %q", betas)
 				}
 				for _, name := range []string{"Authorization", "X-User-Id", "X-Api-Key-Id", "X-Key-Allowed-Providers", "Cookie", "Connection", "X-Hop-Only", "X-HTTP-Method-Override"} {
 					if sent.header.Get(name) != "" {

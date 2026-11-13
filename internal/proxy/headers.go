@@ -20,6 +20,11 @@ func copyProviderRequestHeaders(dst, src http.Header, provider string) {
 			dst.Add(name, value)
 		}
 	}
+	// Anthropic accepts a list in one field. Some upstream gateways read
+	// only the first HTTP field when the beta header is repeated.
+	if values := dst.Values("Anthropic-Beta"); len(values) > 1 {
+		dst.Set("Anthropic-Beta", strings.Join(values, ", "))
+	}
 }
 
 func blockedClientHeader(name string) bool {
