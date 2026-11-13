@@ -10,11 +10,13 @@ import (
 	"github.com/bigduu/bodhi-server/internal/converter"
 )
 
-func streamAnthropic(w http.ResponseWriter, resp *http.Response, flusher http.Flusher) (input, output int) {
+func streamNative(w http.ResponseWriter, resp *http.Response, flusher http.Flusher, protocol inferenceProtocol) (int, int) {
+	var input, output int
+	anthropic := converter.NewAnthropicStreamConverter()
+	gemini := converter.NewGeminiStreamConverter()
 	// Limit only metering work. Fragments are relayed even for large events.
 	const maxMeteredEventBytes = 1024 * 1024
 	reader := bufio.NewReaderSize(resp.Body, 32*1024)
-	tracker := converter.NewAnthropicStreamConverter()
 	var data bytes.Buffer
 	incompleteLine := false
 	skipEvent := false
@@ -27,8 +29,19 @@ func streamAnthropic(w http.ResponseWriter, resp *http.Response, flusher http.Fl
 		case !incompleteLine:
 			field := bytes.TrimRight(line, "\r\n")
 			if len(line) > 0 && len(field) == 0 && err == nil {
-				if !skipEvent {
-					_, _ = tracker.Convert("", data.String())
+				if !skipEvent && data.Len() > 0 {
+					switch protocol {
+					case anthropicMessages:
+						_, _ = anthropic.Convert("", data.String())
+						input, output = anthropic.Usage()
+					case geminiContent:
+						_, _ = gemini.Convert("", data.String())
+						input, output = gemini.Usage()
+					case openAIResponses:
+						if in, out, ok := converter.ExtractResponsesUsage(data.Bytes()); ok {
+							input, output = in, out
+						}
+					}
 				}
 				skipEvent = false
 				data.Reset()
@@ -46,7 +59,7 @@ func streamAnthropic(w http.ResponseWriter, resp *http.Response, flusher http.Fl
 		}
 		if len(line) > 0 {
 			if _, writeErr := w.Write(line); writeErr != nil {
-				return tracker.Usage()
+				return input, output
 			}
 			flusher.Flush()
 		}
@@ -54,7 +67,7 @@ func streamAnthropic(w http.ResponseWriter, resp *http.Response, flusher http.Fl
 			if err != io.EOF {
 				log.Printf("stream error: %v", err)
 			}
-			return tracker.Usage()
+			return input, output
 		}
 	}
 }

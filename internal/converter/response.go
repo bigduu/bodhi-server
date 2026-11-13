@@ -227,6 +227,31 @@ func ExtractNonStreamingUsage(provider string, body []byte) (input, output int) 
 	return 0, 0
 }
 
+// ExtractResponsesUsage reads usage from a Responses object or its terminal SSE event.
+func ExtractResponsesUsage(body []byte) (input, output int, found bool) {
+	type tokenUsage struct {
+		Input  int `json:"input_tokens"`
+		Output int `json:"output_tokens"`
+	}
+	var data struct {
+		Usage    *tokenUsage `json:"usage"`
+		Response *struct {
+			Usage *tokenUsage `json:"usage"`
+		} `json:"response"`
+	}
+	if json.Unmarshal(body, &data) != nil {
+		return 0, 0, false
+	}
+	usage := data.Usage
+	if data.Response != nil {
+		usage = data.Response.Usage
+	}
+	if usage == nil {
+		return 0, 0, false
+	}
+	return usage.Input, usage.Output, true
+}
+
 // InjectStreamOptions adds stream_options.include_usage=true to OpenAI request body.
 func InjectStreamOptions(body []byte) []byte {
 	var req map[string]json.RawMessage

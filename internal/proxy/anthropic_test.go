@@ -87,21 +87,7 @@ func TestProxyAnthropicPreservesNativeMessagesAndHeaders(t *testing.T) {
 			}))
 			defer upstream.Close()
 
-			recorded := &usageRecorderDB{}
-			db := sql.OpenDB(recorded)
-			defer db.Close()
-			cfg := &config.Config{}
-			cfg.Auth.EncryptionKey = strings.Repeat("a", 64)
-			const userID = "29fd5c19-a8c7-4f88-9a7e-26b55c36c6b8"
-			key, err := crypto.Encrypt("upstream-fixture-key", cfg.Auth.EncryptionKey)
-			if err != nil {
-				t.Fatal(err)
-			}
-			handler := &Handler{db: db, cfg: cfg, client: upstream.Client(), credCache: cache.NewTTLCache(time.Minute)}
-			cfg.Server.MaxBodyBytes = 4096
-			handler.credCache.Set("cred:"+userID+":anthropic", &models.ProviderCredential{
-				EncryptedAPIKey: key, BaseURL: sql.NullString{String: upstream.URL, Valid: true},
-			})
+			handler, userID, recorded := newProxyFixture(t, "anthropic", upstream)
 
 			request := httptest.NewRequest(http.MethodPost, "/proxy/anthropic/v1/messages?beta=true", strings.NewReader(requestBody))
 			request.Header.Set("Authorization", "Bearer gateway-fixture-key")
@@ -172,6 +158,26 @@ func TestProxyAnthropicPreservesNativeMessagesAndHeaders(t *testing.T) {
 			}
 		})
 	}
+}
+
+func newProxyFixture(t *testing.T, provider string, upstream *httptest.Server) (*Handler, string, *usageRecorderDB) {
+	t.Helper()
+	recorded := &usageRecorderDB{}
+	db := sql.OpenDB(recorded)
+	t.Cleanup(func() { _ = db.Close() })
+	cfg := &config.Config{}
+	cfg.Auth.EncryptionKey = strings.Repeat("a", 64)
+	cfg.Server.MaxBodyBytes = 4096
+	const userID = "29fd5c19-a8c7-4f88-9a7e-26b55c36c6b8"
+	key, err := crypto.Encrypt("upstream-fixture-key", cfg.Auth.EncryptionKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := &Handler{db: db, cfg: cfg, client: upstream.Client(), credCache: cache.NewTTLCache(time.Minute)}
+	handler.credCache.Set("cred:"+userID+":"+provider, &models.ProviderCredential{
+		EncryptedAPIKey: key, BaseURL: sql.NullString{String: upstream.URL, Valid: true},
+	})
+	return handler, userID, recorded
 }
 
 func TestNativeAnthropicEndpointIsLimitedToMessagesAndModelDiscovery(t *testing.T) {
